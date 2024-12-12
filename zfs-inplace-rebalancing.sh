@@ -16,6 +16,9 @@ rebalance_db_last_save=$SECONDS # when the database was last persisted
 # index used for progress
 current_index=0
 
+# maximum time for execution in hours
+max_execution_time=-1 # -1 means no limit
+
 # temporary file extension
 tmp_extension=".balance"
 
@@ -52,7 +55,11 @@ trap sigint_handler SIGINT
 
 # print a help message
 function print_usage() {
-    echo "Usage: zfs-inplace-rebalancing --checksum true --skip-hardlinks false --passes 1 /my/pool"
+    echo "Usage: $0 --checksum true --skip-hardlinks false --passes 1 -timeout 2 /my/pool"
+    echo "  --checksum true|false: use checksum comparison (default: true)"
+    echo "  --skip-hardlinks true|false: skip hardlinked files (default: false)"
+    echo "  --passes n: number of rebalance passes (default: 1)"
+    echo "  --timeout n: maximum execution time in hours (default: -1, no limit)"
 }
 
 # print a given text entirely in a given color
@@ -145,7 +152,7 @@ function rebalance() {
     fi
 
     current_index="$((current_index + 1))"
-    progress_percent=$(printf '%0.2f' "$((current_index*10000/file_count))e-2")
+    progress_percent=$(printf '%0.2f' "$((current_index * 10000 / file_count))e-2")
     color_echo "${Cyan}" "Progress -- Files: ${current_index}/${file_count} (${progress_percent}%)"
 
     if [[ ! -f "${file_path}" ]]; then
@@ -256,11 +263,14 @@ function rebalance() {
         wait $pid2
 
         # read the md5sum results from the temporary files
-        # the use of read is preferred over cat for performance reasons and to avoid having to cut the output
-        # (read only take to the first separator space/tab/newline)
+        # the use of read is preferred over cat for performance reasons
         # -r -- raw input
         read -r original_hash <"${file_hash_original}"
         read -r copy_hash <"${file_hash_copy}"
+
+        # strip the md5sum results to only contain the hash
+        original_hash=${original_hash%% *}
+        copy_hash=${copy_hash%% *}
 
         if [[ "${original_attrs}" == "${copy_attrs}" && "${original_hash}" == "${copy_hash}" ]]; then
             color_echo "${Green}" "MD5 OK"
@@ -318,6 +328,10 @@ while true; do
         passes_flag=$2
         shift 2
         ;;
+    -t | --timeout)
+        max_execution_time=$2
+        shift 2
+        ;;
     *)
         break
         ;;
@@ -372,21 +386,23 @@ esac
 # while loop:
 # -r -- raw input
 # -d -- delimiter
+
 if [[ "${skip_hardlinks_flag,,}" == "true"* ]]; then
-    find "$root_path" -type f -links 1 -print0 | while IFS= read -r -d '' file; do
-        if [[ "${loop}" == false ]]; then # exit if loop is false
-            break
-        fi
-        rebalance "$file"
-    done
+    param_find="-type f -links 1 -print0"
 else
-    find "$root_path" -type f -print0 | while IFS= read -r -d '' file; do
-        if [[ "${loop}" == false ]]; then # exit if loop is false
-            break
-        fi
-        rebalance "$file"
-    done
+    param_find="-type f -print0"
 fi
+
+find "$root_path" $param_find | while IFS= read -r -d '' file; do
+    if [[ ("$max_execution_time" -ne -1 && $SECONDS -gt $((max_execution_time * 3600))) ]]; then
+        echo "Max execution time reached, exiting..."
+        break
+    fi
+    if [[ "${loop}" == false ]]; then # exit if loop is false
+        break
+    fi
+    rebalance "$file"
+done
 
 # There may be some pending changes as we will almost never hit the interval perfectly - flush it
 persist_database
