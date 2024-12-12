@@ -11,6 +11,13 @@ rebalance_db_file_name="rebalance_db.txt"
 # index used for progress
 current_index=0
 
+# temporary file extension
+tmp_extension=".balance"
+
+# temporary files used for checksum comparison
+file_hash_original="" # original file hash
+file_hash_copy=""     # copy file hash
+
 ## Color Constants
 
 # Reset
@@ -105,7 +112,6 @@ function rebalance () {
         fi
     fi
    
-    tmp_extension=".balance"
     tmp_file_path="${file_path}${tmp_extension}"
 
     echo "Copying '${file_path}' to '${tmp_file_path}'..."
@@ -134,52 +140,78 @@ function rebalance () {
     # compare copy against original to make sure nothing went wrong
     if [[ "${checksum_flag,,}" == "true"* ]]; then
         echo "Comparing copy against original..."
-        if [[ "${OSTYPE,,}" == "linux-gnu"* ]]; then
+        case "${OSTYPE,,}" in
+        "linux-gnu"*)
             # Linux
 
-            # file attributes
-            original_md5=$(lsattr "${file_path}" | awk '{print $1}')
-            # file permissions, owner, group
-            # shellcheck disable=SC2012
-            original_md5="${original_md5} $(ls -lha "${file_path}" | awk '{print $1 " " $3 " " $4}')"
-            # file content
-            original_md5="${original_md5} $(md5sum -b "${file_path}" | awk '{print $1}')"
+            # save original and copy attributes
+            # -c -- format
+            # %A -- access rights in human readable form
+            # %U -- user name of owner
+            # %G -- group name of owner
+            # %s -- size in bytes
+            # %Y -- time of last data modification
+            original_attrs=$(stat -c "%A %U %G %s %Y" "${file_path}")
+            copy_attrs=$(stat -c "%A %U %G %s %Y" "${tmp_file_path}")
 
-            # file attributes
-            copy_md5=$(lsattr "${tmp_file_path}" | awk '{print $1}')
-            # file permissions, owner, group
-            # shellcheck disable=SC2012
-            copy_md5="${copy_md5} $(ls -lha "${tmp_file_path}" | awk '{print $1 " " $3 " " $4}')"
-            # file content
-            copy_md5="${copy_md5} $(md5sum -b "${tmp_file_path}" | awk '{print $1}')"
-        elif [[ "${OSTYPE,,}" == "darwin"* ]] || [[ "${OSTYPE,,}" == "freebsd"* ]]; then
-            # Mac OS
-            # FreeBSD
+            # launch 2 md5sum processes in the background
+            # one for the original file and one for the copy
+            # the results are saved in temporary files (the file a save in the ram)
+            # -b -- binary mode
+            md5sum -b "${file_path}" >"${file_hash_original}" &
+            pid1=$!
+            md5sum -b "${tmp_file_path}" >"${file_hash_copy}" &
+            pid2=$!
+            ;;
 
-            # file attributes
-            original_md5=$(lsattr "${file_path}" | awk '{print $1}')
-            # file permissions, owner, group
-            # shellcheck disable=SC2012
-            original_md5="${original_md5} $(ls -lha "${file_path}" | awk '{print $1 " " $3 " " $4}')"
-            # file content
-            original_md5="${original_md5} $(md5 -q "${file_path}")"
+        "freebsd"* | "darwin"*)
+            # FreeBSD or Mac OS
 
-            # file attributes
-            copy_md5=$(lsattr "${tmp_file_path}" | awk '{print $1}')
-            # file permissions, owner, group
-            # shellcheck disable=SC2012
-            copy_md5="${copy_md5} $(ls -lha "${tmp_file_path}" | awk '{print $1 " " $3 " " $4}')"
-            # file content
-            copy_md5="${copy_md5} $(md5 -q "${tmp_file_path}")"
-        else
+            # save original and copy attributes
+            # -f -- format
+            # %Sp -- file type
+            # %Su -- user name of owner
+            # %Sg -- group name of owner
+            # %z -- size in bytes
+            # %m -- time of last data modification
+            original_attrs=$(stat -f "%Sp %Su %Sg %z %m" "${file_path}")
+            copy_attrs=$(stat -f "%Sp %Su %Sg %z %m" "${tmp_file_path}")
+
+            # launch 2 md5 processes in the background
+            # one for the original file and one for the copy
+            # the results are saved in temporary files (the file is saved in the tmp folder with is normally in the ram)
+            # -q -- quiet mode
+            md5 -q "${file_path}" >"${file_hash_original}" &
+            pid1=$!
+            md5 -q "${tmp_file_path}" >"${file_hash_copy}" &
+            pid2=$!
+            ;;
+        *)
             echo "Unsupported OS type: $OSTYPE"
             exit 1
-        fi
+            ;;
+        esac
 
-        if [[ "${original_md5}" == "${copy_md5}"* ]]; then
+        # wait for both md5sum processes to finish
+        wait $pid1
+        wait $pid2
+
+        # read the md5sum results from the temporary files
+        # the use of read is preferred over cat for performance reasons
+        # -r -- raw input
+        read -r original_hash <"${file_hash_original}"
+        read -r copy_hash <"${file_hash_copy}"
+
+        # strip the md5sum results to only contain the hash
+        original_hash=${original_hash%% *}
+        copy_hash=${copy_hash%% *}
+
+        if [[ "${original_attrs}" == "${copy_attrs}" && "${original_hash}" == "${copy_hash}" ]]; then
             color_echo "${Green}" "MD5 OK"
         else
-            color_echo "${Red}" "MD5 FAILED: ${original_md5} != ${copy_md5}"
+            color_echo "${Red}" "MD5 FAILED:"
+            color_echo "${Red}" "  Original: ${original_attrs} ${original_hash}"
+            color_echo "${Red}" "  Copy: ${copy_attrs} ${copy_hash}"
             exit 1
         fi
     fi
@@ -268,6 +300,28 @@ if [ "${passes_flag}" -ge 1 ]; then
     touch "./${rebalance_db_file_name}"
 fi
 
+# set temporary file paths based on OS
+case "${OSTYPE,,}" in
+"linux-gnu"*)
+    # Linux
+
+    # this folder is in the ram so the access time should be great
+    file_hash_original="/dev/shm/zfs-inplace-rebalancing.md5sum.original"
+    file_hash_copy="/dev/shm/zfs-inplace-rebalancing.md5sum.copy"
+    ;;
+"freebsd"* | "darwin"*)
+    # Mac OS or FreeBSD
+
+    # the tmp folder is generally in the ram so the same as for linux
+    file_hash_original="/tmp/zfs-inplace-rebalancing.md5sum.original"
+    file_hash_copy="/tmp/zfs-inplace-rebalancing.md5sum.copy"
+    ;;
+*)
+    echo "Unsupported OS type: $OSTYPE"
+    exit 1
+    ;;
+esac
+
 # recursively scan through files and execute "rebalance" procedure
 # in the case of --skip-hardlinks, only find files with links == 1
 if [[ "${skip_hardlinks_flag,,}" == "true"* ]]; then
@@ -275,6 +329,9 @@ if [[ "${skip_hardlinks_flag,,}" == "true"* ]]; then
 else
     find "$root_path" -type f -print0 | while IFS= read -r -d '' file; do rebalance "$file"; done
 fi
+
+# cleanup : remove the temporary files (not that bad if not done the next reboot will do it and they are only 1 line each)
+rm -f "${file_hash_original}" "${file_hash_copy}"
 
 echo ""
 echo ""
