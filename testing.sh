@@ -65,7 +65,7 @@ function assert_matching_file_not_copied() {
 }
 
 color_echo "$Cyan" "Running tests..."
-commande=$(ls -lO ./LICENSE)
+commande=$(stat ./LICENSE)
 echo "$commande"
 
 color_echo "$Cyan" "Running tests with default options..."
