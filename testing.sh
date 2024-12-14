@@ -67,7 +67,7 @@ color_echo "$Cyan" "Running tests..."
 
 color_echo "$Cyan" "Running tests with default options..."
 prepare
-./zfs-inplace-rebalancing.sh $test_pool_data_path >> $log_std_file 2>> $log_error_file
+./zfs-inplace-rebalancing.sh
 cat $log_std_file
 assertions
 color_echo "$Green" "Tests passed!"
