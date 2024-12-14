@@ -65,7 +65,8 @@ function assert_matching_file_not_copied() {
 }
 
 color_echo "$Cyan" "Running tests..."
-echo "$OSTYPE"
+xattr ./LICENSE
+xattr -l ./LICENSE
 
 color_echo "$Cyan" "Running tests with default options..."
 prepare
