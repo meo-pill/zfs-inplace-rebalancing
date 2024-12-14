@@ -65,8 +65,8 @@ function assert_matching_file_not_copied() {
 }
 
 color_echo "$Cyan" "Running tests..."
-echo "$(xattr ./LICENSE)"
-echo "$(xattr -l ./LICENSE)"
+commande=${ls -lO ./LICENSE}
+echo "$commande"
 
 color_echo "$Cyan" "Running tests with default options..."
 prepare
