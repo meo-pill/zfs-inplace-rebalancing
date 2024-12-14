@@ -58,8 +58,8 @@ function rebalance() {
     # check if file has >=2 links in the case of --skip-hardlinks
     # this shouldn't be needed in the typical case of `find` only finding files with links == 1
     # but this can run for a long time, so it's good to double check if something changed
-    if [[ "${skip_hardlinks_flag,,}" == "true"* ]]; then
-        if [[ "${OSTYPE,,}" == "linux-gnu"* ]]; then
+    if [[ "${skip_hardlinks_flag}" == "true"* ]]; then
+        if [[ "${OSTYPE}" == "linux-gnu"* ]]; then
             # Linux
             #
             #  -c  --format=FORMAT
@@ -68,7 +68,7 @@ function rebalance() {
             #  %h     number of hard links
 
             hardlink_count=$(stat -c "%h" "${file_path}")
-        elif [[ "${OSTYPE,,}" == "darwin"* ]] || [[ "${OSTYPE,,}" == "freebsd"* ]]; then
+        elif [[ "${OSTYPE}" == "darwin"* ]] || [[ "${OSTYPE}" == "freebsd"* ]]; then
             # Mac OS
             # FreeBSD
             #  -f format
@@ -108,7 +108,7 @@ function rebalance() {
     tmp_file_path="${file_path}${tmp_extension}"
 
     echo "Copying '${file_path}' to '${tmp_file_path}'..."
-    if [[ "${OSTYPE,,}" == "linux-gnu"* ]]; then
+    if [[ "${OSTYPE}" == "linux-gnu"* ]]; then
         # Linux
 
         # --reflink=never -- force standard copy (see ZFS Block Cloning)
@@ -116,7 +116,7 @@ function rebalance() {
         #       -p -- preserve ACLs to
         # -x -- stay on one system
         cp --reflink=never -ax "${file_path}" "${tmp_file_path}"
-    elif [[ "${OSTYPE,,}" == "darwin"* ]] || [[ "${OSTYPE,,}" == "freebsd"* ]]; then
+    elif [[ "${OSTYPE}" == "darwin"* ]] || [[ "${OSTYPE}" == "freebsd"* ]]; then
         # Mac OS
         # FreeBSD
 
@@ -131,9 +131,9 @@ function rebalance() {
     fi
 
     # compare copy against original to make sure nothing went wrong
-    if [[ "${checksum_flag,,}" == "true"* ]]; then
+    if [[ "${checksum_flag}" == "true"* ]]; then
         echo "Comparing copy against original..."
-        if [[ "${OSTYPE,,}" == "linux-gnu"* ]]; then
+        if [[ "${OSTYPE}" == "linux-gnu"* ]]; then
             # Linux
 
             # file attributes
@@ -151,7 +151,7 @@ function rebalance() {
             copy_md5="${copy_md5} $(ls -lha "${tmp_file_path}" | awk '{print $1 " " $3 " " $4}')"
             # file content
             copy_md5="${copy_md5} $(md5sum -b "${tmp_file_path}" | awk '{print $1}')"
-        elif [[ "${OSTYPE,,}" == "darwin"* ]] || [[ "${OSTYPE,,}" == "freebsd"* ]]; then
+        elif [[ "${OSTYPE}" == "darwin"* ]] || [[ "${OSTYPE}" == "freebsd"* ]]; then
             # Mac OS
             # FreeBSD
 
@@ -254,7 +254,7 @@ color_echo "$Cyan" "  Use Checksum: ${checksum_flag}"
 color_echo "$Cyan" "  Skip Hardlinks: ${skip_hardlinks_flag}"
 
 # count files
-if [[ "${skip_hardlinks_flag,,}" == "true"* ]]; then
+if [[ "${skip_hardlinks_flag}" == "true"* ]]; then
     file_count=$(find "${root_path}" -type f -links 1 | wc -l)
 else
     file_count=$(find "${root_path}" -type f | wc -l)
@@ -269,7 +269,7 @@ fi
 
 # recursively scan through files and execute "rebalance" procedure
 # in the case of --skip-hardlinks, only find files with links == 1
-if [[ "${skip_hardlinks_flag,,}" == "true"* ]]; then
+if [[ "${skip_hardlinks_flag}" == "true"* ]]; then
     find "$root_path" -type f -links 1 -print0 | while IFS= read -r -d '' file; do rebalance "$file"; done
 else
     find "$root_path" -type f -print0 | while IFS= read -r -d '' file; do rebalance "$file"; done
