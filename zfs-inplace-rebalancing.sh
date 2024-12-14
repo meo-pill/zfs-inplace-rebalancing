@@ -58,7 +58,7 @@ function rebalance() {
     # check if file has >=2 links in the case of --skip-hardlinks
     # this shouldn't be needed in the typical case of `find` only finding files with links == 1
     # but this can run for a long time, so it's good to double check if something changed
-    if [[ "${skip_hardlinks_flag,,}" == "true"* ]]; then
+    if [[ "$(echo "${skip_hardlinks_flag}" | tr '[:upper:]' '[:lower:]')" == "true"* ]]; then
         if [[ "${OSTYPE,,}" == "linux-gnu"* ]]; then
             # Linux
             #
