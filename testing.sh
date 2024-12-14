@@ -64,13 +64,10 @@ function assert_matching_file_not_copied() {
 }
 
 color_echo "$Cyan" "Running tests..."
-commande=$(stat ./LICENSE)
-echo "$commande"
 
 color_echo "$Cyan" "Running tests with default options..."
 prepare
-./zfs-inplace-rebalancing.sh $test_pool_data_path >> $log_std_file 2>> $log_error_file
-cat $log_std_file
+./zfs-inplace-rebalancing.sh
 assertions
 color_echo "$Green" "Tests passed!"
 
