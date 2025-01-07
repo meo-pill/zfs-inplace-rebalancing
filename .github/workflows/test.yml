@@ -24,14 +24,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Cache dependencies
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache
-        key: ${{ runner.os }}-cache-${{ hashFiles('**/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-cache-
-
     - name: Install coreutils
       run: brew install coreutils
 
@@ -44,15 +36,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Cache dependencies
-      uses: actions/cache@v3
-      with:
-        path: /var/cache
-        key: ${{ runner.os }}-cache
-        restore-keys: |
-          ${{ runner.os }}-cache
-
+  
     - name: Test in FreeBSD
       id: test
       uses: vmactions/freebsd-vm@v1
