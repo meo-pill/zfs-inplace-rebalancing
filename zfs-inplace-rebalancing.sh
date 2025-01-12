@@ -5,6 +5,8 @@ set -e
 # exit on undeclared variable
 set -u
 
+## Variables
+
 # file used to track processed files
 rebalance_db_file_name="rebalance_db.txt"
 
@@ -22,6 +24,15 @@ Green='\033[0;32m'  # Green
 Yellow='\033[0;33m' # Yellow
 Cyan='\033[0;36m'   # Cyan
 
+# Temporary file extension
+tmp_extension=".balance"
+
+# time of last rebalance "database" update
+lastupdate=$SECONDS
+
+# Array to store rebalance "database"
+declare -a db_array
+
 ## Functions
 
 # print a help message
@@ -36,19 +47,65 @@ function color_echo() {
     echo -e "${color}${text}${Color_Off}"
 }
 
-function get_rebalance_count() {
-    file_path=$1
+# function to load a rebalance "database" file into an array
+function load_rebalance_db() {
+    local file="$1"
+    while IFS= read -r line; do
+        db_array+=("$line")
+    done < "$file"
+}
 
-    line_nr=$(grep -xF -n "${file_path}" "./${rebalance_db_file_name}" | head -n 1 | cut -d: -f1)
-    if [ -z "${line_nr}" ]; then
-        echo "0"
-        return
+# function to save a rebalance "database" array into a file
+function save_rebalance_db() {
+    local file="$1"
+    printf "%s\n" "${db_array[@]}" > "$file"
+}
+
+# function to update the rebalance count for a file
+function update_rebalance_count() {
+    local file_path="$1"
+    local line_nr=-1
+
+    # find the file in the array
+    for i in "${!db_array[@]}"; do
+        if [[ "${db_array[$i]}" == "$file_path" ]]; then
+            line_nr=$i
+            break
+        fi
+    done
+
+    if [[ $line_nr -eq -1 ]]; then
+        # add the file to the array if it doesn't exist
+        db_array+=("$file_path")
+        db_array+=(1)
     else
-        rebalance_count_line_nr="$((line_nr + 1))"
-        rebalance_count=$(awk "NR == ${rebalance_count_line_nr}" "./${rebalance_db_file_name}")
-        echo "${rebalance_count}"
-        return
+        # update the rebalance count
+        local rebalance_count_line_nr=$((line_nr + 1))
+        db_array[$rebalance_count_line_nr]=$((db_array[$rebalance_count_line_nr] + 1))
     fi
+}
+
+# function to get the rebalance count for a file
+function get_rebalance_count() {
+    local file_path="$1"
+    local line_nr=-1
+
+    # find the file in the array
+    for i in "${!db_array[@]}"; do
+        if [[ "${db_array[$i]}" == "$file_path" ]]; then
+            line_nr=$i
+            break
+        fi
+    done
+
+    # return 0 if the file is not found
+    if [[ $line_nr -eq -1 ]]; then
+        echo 0
+    else
+        # return the rebalance count
+        local rebalance_count_line_nr=$((line_nr + 1))
+        echo "${db_array[$rebalance_count_line_nr]}"
+    fi    
 }
 
 # rebalance a specific file
@@ -104,7 +161,6 @@ function rebalance() {
         fi
     fi
 
-    tmp_extension=".balance"
     tmp_file_path="${file_path}${tmp_extension}"
 
     echo "Copying '${file_path}' to '${tmp_file_path}'..."
@@ -153,7 +209,7 @@ function rebalance() {
             # file permissions, owner, group, size, modification time
             copy_checksum="${copy_checksum} $(stat -c "%A %U %G %s %Y" "${tmp_file_path}")"
             # file content
-            copy_checksum="${copy_checksum} $(cksum "${file_path}")"
+            copy_checksum="${copy_checksum} $(cksum "${tmp_file_path}")"
             # remove the temporary extension
             copy_checksum=${copy_checksum%"${tmp_extension}"}
         elif [[ "${OSName}" == "darwin"* ]] || [[ "${OSName}" == "freebsd"* ]]; then
@@ -194,15 +250,11 @@ function rebalance() {
 
     if [ "${passes_flag}" -ge 1 ]; then
         # update rebalance "database"
-        line_nr=$(grep -xF -n "${file_path}" "./${rebalance_db_file_name}" | head -n 1 | cut -d: -f1)
-        if [ -z "${line_nr}" ]; then
-            rebalance_count=1
-            echo "${file_path}" >>"./${rebalance_db_file_name}"
-            echo "${rebalance_count}" >>"./${rebalance_db_file_name}"
-        else
-            rebalance_count_line_nr="$((line_nr + 1))"
-            rebalance_count="$((rebalance_count + 1))"
-            sed -i '' "${rebalance_count_line_nr}s/.*/${rebalance_count}/" "./${rebalance_db_file_name}"
+        update_rebalance_count "${file_path}"
+        timediff=$(($SECONDS - $lastupdate))
+        if [ "${timediff}" -gt 60 ]; then
+            save_rebalance_db "${rebalance_db_file_name}"
+            lastupdate=$SECONDS
         fi
     fi
 }
